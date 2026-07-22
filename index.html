@@ -214,6 +214,7 @@ async function loadAll() {
       l.on('mouseover', () => { line.setStyle({ color: '#5b8dff', weight: 6 }); map.getContainer().style.cursor = 'pointer'; });
       l.on('mouseout', () => { line.setStyle({ color: '#2f6fed', weight: 4 }); map.getContainer().style.cursor = ''; });
       l.on('click', ev => {
+        L.DomEvent.stopPropagation(ev);
         const p = nearestPoint(points, ev.latlng);
         openVideo(entry, p.seconds);
       });
