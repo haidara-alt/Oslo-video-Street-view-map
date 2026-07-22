@@ -245,10 +245,30 @@ function openVideo(entry, seconds) {
 
   if (!ytPlayer) {
     ytPlayer = new YT.Player('ytPlayer', {
+      width: '100%',
+      height: '100%',
       videoId: entry.youtubeId,
-      playerVars: { start: startAt, autoplay: 1, rel: 0 },
+      playerVars: {
+        start: startAt,
+        autoplay: 1,
+        rel: 0,
+        playsinline: 1,
+        origin: window.location.origin
+      },
       events: {
-        onReady: ev => { ev.target.seekTo(startAt, true); ev.target.playVideo(); }
+        onReady: ev => {
+          // 360 video needs these permissions or you get audio with a black frame
+          const iframe = ev.target.getIframe();
+          iframe.setAttribute(
+            'allow',
+            'autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture'
+          );
+          iframe.setAttribute('allowfullscreen', '');
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          ev.target.seekTo(startAt, true);
+          ev.target.playVideo();
+        }
       }
     });
     ytPlayer._loadedId = entry.youtubeId;
