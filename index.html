@@ -99,12 +99,13 @@
     #videoPane, #mapPane{ width:100%; height:50%; border-right:none; border-bottom:1px solid var(--panel-line); }
   }
 </style>
+<base target="_blank">
 </head>
 <body>
 
 <div id="app">
   <div id="videoPane">
-    <iframe id="videoFrame" style="display:none;" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <iframe id="videoFrame" style="display:none;" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture; xr-spatial-tracking" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
     <div id="videoIdle">
       <b>Oslo Street Archive</b>
       <span>Click any blue street on the map to play its footage here.</span>
@@ -144,15 +145,11 @@ map.on('mousemove', e => {
     `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
 });
 
-// Leaflet computes tile positions from its container size at init time;
-// since #map is only half the viewport (and that half didn't exist as
-// a sized box before layout settled), tell it to recheck its size once
-// everything is laid out.
 window.addEventListener('load', () => map.invalidateSize());
 setTimeout(() => map.invalidateSize(), 200);
 
 /* ---------- state ---------- */
-let tracks = [];       // {entry, points:[{lat,lon,seconds}], polyline}
+let tracks = [];
 
 /* ---------- GPX parsing ---------- */
 function parseGpx(xmlText) {
@@ -207,7 +204,6 @@ async function loadAll() {
     const latlngs = points.map(p => [p.lat, p.lon]);
     allBounds.push(...latlngs);
 
-    // wide invisible hit-line for easy clicking, plus visible line on top
     const hit = L.polyline(latlngs, { color: '#000', weight: 18, opacity: 0 }).addTo(map);
     const line = L.polyline(latlngs, { color: getComputedStyle(document.documentElement).getPropertyValue('--track').trim(), weight: 4, opacity: 0.9 }).addTo(map);
 
@@ -242,12 +238,12 @@ function playVideo(entry, seconds) {
   const idle = document.getElementById('videoIdle');
   const meta = document.getElementById('videoMeta');
 
-  // Use standard youtube.com/embed (not nocookie) — 360° metadata sometimes
-  // fails to load on the privacy-enhanced domain
-  // origin=YOUR_DOMAIN is required for 360° player initialization
+  // Use youtube.com (not nocookie) — 360° metadata sometimes fails on privacy domain
+  // origin parameter is required for 360° player initialization
   const src = `https://www.youtube.com/embed/${entry.youtubeId}` +
     `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1` +
-    `&origin=${encodeURIComponent(window.location.origin)}`;
+    `&origin=${encodeURIComponent(window.location.origin)}` +
+    `&iv_load_policy=3&fs=1&enablejsapi=1`;
 
   frame.src = src;
   frame.style.display = 'block';
