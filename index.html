@@ -93,19 +93,60 @@
 
   .leaflet-container{ background:#0d1117; }
 
+  /* ---- FULLSCREEN MODAL ---- */
+  #videoModal{
+    position:fixed; inset:0; z-index:1000;
+    background:rgba(13,17,23,0.95);
+    backdrop-filter:blur(12px);
+    display:none; flex-direction:column;
+  }
+  #videoModal.active{ display:flex; }
+  #modalHeader{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 24px; border-bottom:1px solid var(--panel-line);
+  }
+  #modalHeader h2{
+    margin:0; font-family:var(--sans); font-size:15px; color:var(--paper);
+    font-weight:600;
+  }
+  #modalHeader .modalMeta{
+    font-family:var(--mono); font-size:12px; color:var(--dim);
+  }
+  #modalClose{
+    background:none; border:1px solid var(--panel-line); color:var(--dim);
+    padding:8px 16px; border-radius:6px; cursor:pointer;
+    font-family:var(--sans); font-size:13px; transition:all 0.2s;
+  }
+  #modalClose:hover{
+    border-color:var(--track); color:var(--track-bright); background:rgba(47,111,237,0.1);
+  }
+  #modalFrameWrap{
+    flex:1; position:relative; min-height:0;
+  }
+  #modalFrame{
+    position:absolute; inset:0; width:100%; height:100%; border:0;
+  }
+  #modalHint{
+    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+    background:rgba(18,22,28,0.9); border:1px solid var(--panel-line);
+    padding:8px 16px; border-radius:20px;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    pointer-events:none; opacity:0; transition:opacity 0.5s;
+  }
+  #modalHint.show{ opacity:1; }
+
   /* stack panes vertically on narrow screens */
   @media (max-width: 800px){
     #app{ flex-direction:column; }
     #videoPane, #mapPane{ width:100%; height:50%; border-right:none; border-bottom:1px solid var(--panel-line); }
   }
 </style>
-<base target="_blank">
 </head>
 <body>
 
 <div id="app">
   <div id="videoPane">
-    <iframe id="videoFrame" style="display:none;" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture; xr-spatial-tracking" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <iframe id="videoFrame" style="display:none;" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
     <div id="videoIdle">
       <b>Oslo Street Archive</b>
       <span>Click any blue street on the map to play its footage here.</span>
@@ -122,6 +163,21 @@
       <ul id="videoList"></ul>
     </div>
     <div id="coordReadout">hover the map for coordinates</div>
+  </div>
+</div>
+
+<!-- Fullscreen Modal -->
+<div id="videoModal">
+  <div id="modalHeader">
+    <div>
+      <h2 id="modalTitle">Video Title</h2>
+      <span class="modalMeta" id="modalMetaText">t+0s</span>
+    </div>
+    <button id="modalClose" onclick="closeModal()">Close ✕</button>
+  </div>
+  <div id="modalFrameWrap">
+    <iframe id="modalFrame" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture; xr-spatial-tracking" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <div id="modalHint">Drag to look around in 360&deg;</div>
   </div>
 </div>
 
@@ -213,7 +269,7 @@ async function loadAll() {
       l.on('click', ev => {
         L.DomEvent.stopPropagation(ev);
         const p = nearestPoint(points, ev.latlng);
-        playVideo(entry, p.seconds);
+        openFullscreenVideo(entry, p.seconds);
       });
     });
 
@@ -230,28 +286,54 @@ async function loadAll() {
 }
 loadAll();
 
-/* ---------- video ---------- */
-function playVideo(entry, seconds) {
+/* ---------- fullscreen modal video ---------- */
+function openFullscreenVideo(entry, seconds) {
   const startAt = Math.max(0, seconds + (entry.offsetAdjustSeconds || 0));
-
-  const frame = document.getElementById('videoFrame');
-  const idle = document.getElementById('videoIdle');
-  const meta = document.getElementById('videoMeta');
-
-  // Use youtube.com (not nocookie) — 360° metadata sometimes fails on privacy domain
-  // origin parameter is required for 360° player initialization
+  
+  const modal = document.getElementById('videoModal');
+  const modalFrame = document.getElementById('modalFrame');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalMeta = document.getElementById('modalMetaText');
+  const modalHint = document.getElementById('modalHint');
+  
+  // Build embed URL with all possible 360° triggers
   const src = `https://www.youtube.com/embed/${entry.youtubeId}` +
     `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1` +
     `&origin=${encodeURIComponent(window.location.origin)}` +
     `&iv_load_policy=3&fs=1&enablejsapi=1`;
-
+  
+  modalFrame.src = src;
+  modalTitle.textContent = entry.name || entry.filename;
+  modalMeta.textContent = `t+${startAt}s · 360° mode`;
+  modal.classList.add('active');
+  
+  // Show "drag to look around" hint briefly
+  setTimeout(() => modalHint.classList.add('show'), 1000);
+  setTimeout(() => modalHint.classList.remove('show'), 6000);
+  
+  // Also update the small preview in the background
+  const frame = document.getElementById('videoFrame');
+  const idle = document.getElementById('videoIdle');
+  const meta = document.getElementById('videoMeta');
+  
   frame.src = src;
   frame.style.display = 'block';
   idle.style.display = 'none';
-
   meta.innerHTML = `<b>${entry.name || entry.filename}</b> &nbsp;·&nbsp; t+${startAt}s`;
   meta.classList.add('active');
 }
+
+function closeModal() {
+  const modal = document.getElementById('videoModal');
+  const modalFrame = document.getElementById('modalFrame');
+  modal.classList.remove('active');
+  modalFrame.src = ''; // Stop video
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeModal();
+});
 </script>
 </body>
 </html>
