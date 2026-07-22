@@ -113,7 +113,7 @@
 <div id="videoPanel">
   <button id="closeVideo" aria-label="Close video">&times;</button>
   <div id="videoMeta"></div>
-  <div id="playerFrame"><div id="ytPlayer"></div></div>
+  <div id="playerFrame"><iframe id="ytPlayer" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -138,20 +138,6 @@ map.on('mousemove', e => {
 
 /* ---------- state ---------- */
 let tracks = [];       // {entry, points:[{lat,lon,seconds}], polyline}
-let ytPlayer = null;
-let ytApiReady = false;
-let pendingOpen = null;
-
-/* ---------- YouTube IFrame API ---------- */
-window.onYouTubeIframeAPIReady = function () {
-  ytApiReady = true;
-  if (pendingOpen) { const p = pendingOpen; pendingOpen = null; openVideo(p.entry, p.seconds); }
-};
-(function loadYT() {
-  const s = document.createElement('script');
-  s.src = 'https://www.youtube.com/iframe_api';
-  document.head.appendChild(s);
-})();
 
 /* ---------- GPX parsing ---------- */
 function parseGpx(xmlText) {
@@ -241,30 +227,15 @@ function openVideo(entry, seconds) {
   document.getElementById('videoMeta').innerHTML =
     `<b>${entry.name || entry.filename}</b> &nbsp;·&nbsp; t+${startAt}s`;
 
-  if (!ytApiReady) { pendingOpen = { entry, seconds }; return; }
-
-  if (!ytPlayer) {
-    ytPlayer = new YT.Player('ytPlayer', {
-      videoId: entry.youtubeId,
-      playerVars: { start: startAt, autoplay: 1, rel: 0 },
-      events: {
-        onReady: ev => { ev.target.seekTo(startAt, true); ev.target.playVideo(); }
-      }
-    });
-    ytPlayer._loadedId = entry.youtubeId;
-  } else if (ytPlayer._loadedId === entry.youtubeId) {
-    ytPlayer.seekTo(startAt, true);
-    ytPlayer.playVideo();
-  } else {
-    ytPlayer.loadVideoById({ videoId: entry.youtubeId, startSeconds: startAt });
-    ytPlayer._loadedId = entry.youtubeId;
-  }
+  const ytPlayer = document.getElementById('ytPlayer');
+  ytPlayer.src = `https://www.youtube.com/embed/${entry.youtubeId}?start=${startAt}&autoplay=1&rel=0`;
 }
 
 function closeVideo() {
   document.getElementById('videoPanel').classList.remove('active');
   document.getElementById('map').classList.remove('docked');
-  if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+  const ytPlayer = document.getElementById('ytPlayer');
+  ytPlayer.src = '';
 }
 document.getElementById('closeVideo').addEventListener('click', closeVideo);
 document.getElementById('map').addEventListener('click', () => {
