@@ -18,23 +18,245 @@
     --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
   *{box-sizing:border-box;}
-  html,body{height:100%;margin:0;background:var(--ink);font-family:var(--sans);}
-  #map{position:absolute;inset:0;z-index:1;filter:saturate(0.75) brightness(0.95);}
-  #map.docked{
-    position:fixed;
-    top:auto;left:auto;
-    bottom:18px; right:18px;
-    width:260px; height:260px;
-    border-radius:10px;
-    box-shadow:0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px var(--panel-line);
-    z-index:40;
-    cursor:pointer;
-    transition:width .25s ease, height .25s ease;
-    overflow:hidden;
+  html,body{height:100%;margin:0;background:var(--ink);font-family:var(--sans);overflow:hidden;}
+
+  #app{
+    position:absolute; inset:0;
+    display:flex;
+    flex-direction:row;
   }
-  #map.docked:hover{ box-shadow:0 12px 40px rgba(0,0,0,0.6), 0 0 0 2px var(--track-bright); }
+
+  /* ---- left half: video ---- */
+  #videoPane{
+    position:relative;
+    width:50%; height:100%;
+    background:#000;
+    border-right:1px solid var(--panel-line);
+    flex-shrink:0;
+  }
+  #videoFrame{
+    width:100%; height:100%; border:0; display:block;
+  }
+  #videoIdle{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:10px;
+    color:var(--dim); font-family:var(--mono); font-size:12.5px;
+    text-align:center; padding:0 30px;
+  }
+  #videoIdle b{ color:var(--paper); font-weight:600; font-family:var(--sans); font-size:15px; }
+  #videoMeta{
+    position:absolute; bottom:18px; left:18px; z-index:5;
+    font-family:var(--mono); font-size:12px; color:var(--dim);
+    background:rgba(18,22,28,0.85); border:1px solid var(--panel-line);
+    padding:6px 10px; border-radius:6px;
+    display:none;
+  }
+  #videoMeta b{ color:var(--paper); font-weight:600; }
+  #videoMeta.active{ display:block; }
+
+  /* ---- right half: map ---- */
+  #mapPane{
+    position:relative;
+    width:50%; height:100%;
+    flex-shrink:0;
+  }
+  #map{ position:absolute; inset:0; filter:saturate(0.75) brightness(0.95); }
 
   #hud{
+    position:absolute; top:16px; left:16px; z-index:20;
+    background:rgba(18,22,28,0.92); border:1px solid var(--panel-line);
+    border-radius:10px; padding:14px 16px; width:260px;
+    color:var(--paper); backdrop-filter:blur(6px);
+  }
+  #hud h1{
+    font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--track-bright); margin:0 0 4px; font-weight:600;
+  }
+  #hud p.sub{ margin:0 0 12px; font-size:12px; color:var(--dim); line-height:1.5;}
+  .legend-row{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); margin-bottom:2px;}
+  .swatch{width:18px;height:4px;border-radius:2px;background:var(--track);}
+  #videoList{list-style:none; margin:12px 0 0; padding:10px 0 0; border-top:1px solid var(--panel-line);}
+  #videoList li{
+    font-family:var(--mono); font-size:11.5px; color:var(--paper);
+    padding:6px 4px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:8px;
+  }
+  #videoList li:hover{background:rgba(91,141,255,0.12); color:var(--track-bright);}
+  #videoList li span.tag{color:var(--dim);}
+
+  #coordReadout{
+    position:absolute; bottom:16px; left:16px; z-index:20;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    background:rgba(18,22,28,0.85); border:1px solid var(--panel-line);
+    padding:6px 10px; border-radius:6px; pointer-events:none;
+  }
+
+  .leaflet-container{ background:#0d1117; }
+
+  /* stack panes vertically on narrow screens */
+  @media (max-width: 800px){
+    #app{ flex-direction:column; }
+    #videoPane, #mapPane{ width:100%; height:50%; border-right:none; border-bottom:1px solid var(--panel-line); }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="videoPane">
+    <iframe id="videoFrame" style="display:none;" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <div id="videoIdle">
+      <b>Oslo Street Archive</b>
+      <span>Click any blue street on the map to play its footage here.</span>
+    </div>
+    <div id="videoMeta"></div>
+  </div>
+
+  <div id="mapPane">
+    <div id="map"></div>
+    <div id="hud">
+      <h1>Oslo Street Archive</h1>
+      <p class="sub">Personal 360&deg; footage, geotagged and stitched to a map. Click any blue street to play it from that exact spot.</p>
+      <div class="legend-row"><span class="swatch"></span> Filmed street</div>
+      <ul id="videoList"></ul>
+    </div>
+    <div id="coordReadout">hover the map for coordinates</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ---------- config ---------- */
+const OSLO_CENTER = [59.9139, 10.7522];
+const MANIFEST_URL = 'manifest.json';
+
+/* ---------- map setup ---------- */
+const map = L.map('map', { zoomControl: true, attributionControl: true })
+  .setView(OSLO_CENTER, 13);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  maxZoom: 20
+}).addTo(map);
+
+map.on('mousemove', e => {
+  document.getElementById('coordReadout').textContent =
+    `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+});
+
+// Leaflet computes tile positions from its container size at init time;
+// since #map is only half the viewport (and that half didn't exist as
+// a sized box before layout settled), tell it to recheck its size once
+// everything is laid out.
+window.addEventListener('load', () => map.invalidateSize());
+setTimeout(() => map.invalidateSize(), 200);
+
+/* ---------- state ---------- */
+let tracks = [];       // {entry, points:[{lat,lon,seconds}], polyline}
+
+/* ---------- GPX parsing ---------- */
+function parseGpx(xmlText) {
+  const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+  const pts = Array.from(xml.getElementsByTagName('trkpt')).map(pt => ({
+    lat: parseFloat(pt.getAttribute('lat')),
+    lon: parseFloat(pt.getAttribute('lon')),
+    time: new Date(pt.getElementsByTagName('time')[0].textContent)
+  }));
+  if (!pts.length) return [];
+  const t0 = pts[0].time.getTime();
+  return pts.map(p => ({
+    lat: p.lat, lon: p.lon,
+    seconds: Math.max(0, Math.round((p.time.getTime() - t0) / 1000))
+  }));
+}
+
+function nearestPoint(points, latlng) {
+  let best = points[0], bestDist = Infinity;
+  const target = L.latLng(latlng.lat, latlng.lng);
+  for (const p of points) {
+    const d = target.distanceTo([p.lat, p.lon]);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  return best;
+}
+
+/* ---------- loading ---------- */
+async function loadAll() {
+  let manifest;
+  try {
+    manifest = await (await fetch(MANIFEST_URL)).json();
+  } catch (e) {
+    console.error('Could not load manifest.json — serve this folder over http(s), not file://', e);
+    return;
+  }
+
+  const listEl = document.getElementById('videoList');
+  const allBounds = [];
+
+  for (const entry of manifest) {
+    let gpxText;
+    try {
+      gpxText = await (await fetch(entry.gpx)).text();
+    } catch (e) {
+      console.error('Missing gpx for', entry.filename, e);
+      continue;
+    }
+    const points = parseGpx(gpxText);
+    if (!points.length) continue;
+
+    const latlngs = points.map(p => [p.lat, p.lon]);
+    allBounds.push(...latlngs);
+
+    // wide invisible hit-line for easy clicking, plus visible line on top
+    const hit = L.polyline(latlngs, { color: '#000', weight: 18, opacity: 0 }).addTo(map);
+    const line = L.polyline(latlngs, { color: getComputedStyle(document.documentElement).getPropertyValue('--track').trim(), weight: 4, opacity: 0.9 }).addTo(map);
+
+    [hit, line].forEach(l => {
+      l.on('mouseover', () => { line.setStyle({ color: '#5b8dff', weight: 6 }); map.getContainer().style.cursor = 'pointer'; });
+      l.on('mouseout', () => { line.setStyle({ color: '#2f6fed', weight: 4 }); map.getContainer().style.cursor = ''; });
+      l.on('click', ev => {
+        L.DomEvent.stopPropagation(ev);
+        const p = nearestPoint(points, ev.latlng);
+        playVideo(entry, p.seconds);
+      });
+    });
+
+    tracks.push({ entry, points, polyline: line });
+
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${entry.name || entry.filename}</span><span class="tag">${points.length} pts</span>`;
+    li.addEventListener('click', () => map.fitBounds(latlngs, { maxZoom: 17 }));
+    listEl.appendChild(li);
+  }
+
+  if (allBounds.length) map.fitBounds(allBounds, { padding: [40, 40] });
+  map.invalidateSize();
+}
+loadAll();
+
+/* ---------- video ---------- */
+function playVideo(entry, seconds) {
+  const startAt = Math.max(0, seconds + (entry.offsetAdjustSeconds || 0));
+
+  const frame = document.getElementById('videoFrame');
+  const idle = document.getElementById('videoIdle');
+  const meta = document.getElementById('videoMeta');
+
+  const src = `https://www.youtube-nocookie.com/embed/${entry.youtubeId}` +
+    `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1`;
+
+  // reassigning src (even to the same video) reloads the player at the
+  // new start time — simplest reliable way to always show a picture
+  frame.src = src;
+  frame.style.display = 'block';
+  idle.style.display = 'none';
+
+  meta.innerHTML = `<b>${entry.name || entry.filename}</b> &nbsp;·&nbsp; t+${startAt}s`;
+  meta.classList.add('active');
+}
+</script>
+</body>
+</html>  #hud{
     position:absolute; top:16px; left:16px; z-index:20;
     background:rgba(18,22,28,0.92); border:1px solid var(--panel-line);
     border-radius:10px; padding:14px 16px; width:280px;
