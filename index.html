@@ -242,12 +242,12 @@ function playVideo(entry, seconds) {
   const idle = document.getElementById('videoIdle');
   const meta = document.getElementById('videoMeta');
 
-  // 360° video embed parameters:
-  // vr=1           — force 360° spherical mode
-  // spherical=1    — alternative parameter (kept for redundancy)
-  // gyroscope      — already in allow attribute, lets mobile users tilt to look around
-  const src = `https://www.youtube-nocookie.com/embed/${entry.youtubeId}` +
-    `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1&vr=1&spherical=1`;
+  // Use standard youtube.com/embed (not nocookie) — 360° metadata sometimes
+  // fails to load on the privacy-enhanced domain
+  // origin=YOUR_DOMAIN is required for 360° player initialization
+  const src = `https://www.youtube.com/embed/${entry.youtubeId}` +
+    `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1` +
+    `&origin=${encodeURIComponent(window.location.origin)}`;
 
   frame.src = src;
   frame.style.display = 'block';
