@@ -26,7 +26,7 @@
     flex-direction:column;
   }
 
-  /* ---- top half: map (on mobile, map is primary) ---- */
+  /* ---- top half: map ---- */
   #mapPane{
     position:relative;
     width:100%; height:55%;
@@ -53,7 +53,7 @@
     font-family:var(--mono); font-size:10.5px; color:var(--paper);
     padding:5px 3px; border-radius:5px; cursor:pointer; display:flex; justify-content:space-between; gap:6px;
   }
-  #videoList li:hover, #videoList li:active{background:rgba(91,141,255,0.12); color:var(--track-bright);}
+  #videoList li:active{background:rgba(91,141,255,0.12); color:var(--track-bright);}
 
   #coordReadout{
     position:absolute; bottom:10px; left:10px; z-index:20;
@@ -129,40 +129,9 @@
   #videoMeta b{ color:var(--paper); font-weight:600; }
   #videoMeta.active{ display:block; }
 
-  /* ---- FULLSCREEN MODAL (for desktop/tablet) ---- */
-  #videoModal{
-    position:fixed; inset:0; z-index:1000;
-    background:rgba(13,17,23,0.98);
-    display:none; flex-direction:column;
-  }
-  #videoModal.active{ display:flex; }
-  #modalHeader{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:14px 18px; border-bottom:1px solid var(--panel-line);
-    flex-shrink:0;
-  }
-  #modalHeader h2{
-    margin:0; font-family:var(--sans); font-size:14px; color:var(--paper);
-    font-weight:600;
-  }
-  #modalHeader .modalMeta{
-    font-family:var(--mono); font-size:11px; color:var(--dim);
-  }
-  #modalClose{
-    background:none; border:1px solid var(--panel-line); color:var(--dim);
-    padding:8px 14px; border-radius:6px; cursor:pointer;
-    font-family:var(--sans); font-size:12px;
-  }
-  #modalFrameWrap{
-    flex:1; position:relative; min-height:0;
-  }
-  #modalFrame{
-    position:absolute; inset:0; width:100%; height:100%; border:0;
-  }
-
   .leaflet-container{ background:#0d1117; }
 
-  /* Desktop: side-by-side layout */
+  /* Desktop: side-by-side */
   @media (min-width: 801px){
     #app{ flex-direction:row; }
     #videoPane{ width:50%; height:100%; border-right:1px solid var(--panel-line); border-bottom:none; }
@@ -178,6 +147,7 @@
     #videoIdle b{ font-size:15px; }
   }
 </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -194,7 +164,6 @@
   </div>
 
   <div id="videoPane">
-    <!-- Mobile: tap to open YouTube app -->
     <div id="videoPreview">
       <img id="previewImg" src="" alt="Video preview">
       <div class="play-overlay">
@@ -215,26 +184,12 @@
   </div>
 </div>
 
-<!-- Fullscreen Modal for desktop -->
-<div id="videoModal">
-  <div id="modalHeader">
-    <div>
-      <h2 id="modalTitle">Video Title</h2>
-      <span class="modalMeta" id="modalMetaText">t+0s</span>
-    </div>
-    <button id="modalClose" onclick="closeModal()">Close ✕</button>
-  </div>
-  <div id="modalFrameWrap">
-    <iframe id="modalFrame" allow="autoplay; fullscreen; gyroscope; accelerometer; encrypted-media; picture-in-picture; xr-spatial-tracking" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
-  </div>
-</div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 /* ---------- config ---------- */
 const OSLO_CENTER = [59.9139, 10.7522];
 const MANIFEST_URL = 'manifest.json';
-const IS_MOBILE = window.innerWidth <= 800 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
 /* ---------- map setup ---------- */
 const map = L.map('map', { zoomControl: true, attributionControl: true })
@@ -244,13 +199,6 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
   maxZoom: 20
 }).addTo(map);
-
-map.on('mousemove', e => {
-  if (!IS_MOBILE) {
-    document.getElementById('coordReadout').textContent =
-      `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
-  }
-});
 
 window.addEventListener('load', () => map.invalidateSize());
 setTimeout(() => map.invalidateSize(), 200);
@@ -313,12 +261,10 @@ async function loadAll() {
     const latlngs = points.map(p => [p.lat, p.lon]);
     allBounds.push(...latlngs);
 
-    const hit = L.polyline(latlngs, { color: '#000', weight: 22, opacity: 0 }).addTo(map);
+    const hit = L.polyline(latlngs, { color: '#000', weight: 24, opacity: 0 }).addTo(map);
     const line = L.polyline(latlngs, { color: getComputedStyle(document.documentElement).getPropertyValue('--track').trim(), weight: 5, opacity: 0.9 }).addTo(map);
 
     [hit, line].forEach(l => {
-      l.on('mouseover', () => { if (!IS_MOBILE) { line.setStyle({ color: '#5b8dff', weight: 7 }); map.getContainer().style.cursor = 'pointer'; }});
-      l.on('mouseout', () => { if (!IS_MOBILE) { line.setStyle({ color: '#2f6fed', weight: 5 }); map.getContainer().style.cursor = ''; }});
       l.on('click', ev => {
         L.DomEvent.stopPropagation(ev);
         const p = nearestPoint(points, ev.latlng);
@@ -350,11 +296,9 @@ function playVideo(entry, seconds) {
   const idle = document.getElementById('videoIdle');
   const meta = document.getElementById('videoMeta');
 
-  // Show preview
   idle.style.display = 'none';
   preview.classList.add('active');
 
-  // YouTube thumbnail
   previewImg.src = `https://img.youtube.com/vi/${entry.youtubeId}/mqdefault.jpg`;
   previewImg.onerror = () => {
     previewImg.src = `https://img.youtube.com/vi/${entry.youtubeId}/default.jpg`;
@@ -363,54 +307,57 @@ function playVideo(entry, seconds) {
   meta.innerHTML = `<b>${entry.name || entry.filename}</b> &nbsp;·&nbsp; t+${startAt}s`;
   meta.classList.add('active');
 
-  // Click handler
-  preview.onclick = () => {
-    if (IS_MOBILE) {
-      // Mobile: open YouTube app directly for guaranteed 360° + gyroscope
-      // Use youtube:// URL scheme to try opening native app first
-      const youtubeAppUrl = `youtube://watch?v=${entry.youtubeId}&t=${startAt}s`;
-      const youtubeWebUrl = `https://www.youtube.com/watch?v=${entry.youtubeId}&t=${startAt}s`;
-      
-      // Try to open app, fallback to web
-      window.location.href = youtubeAppUrl;
-      setTimeout(() => {
-        window.location.href = youtubeWebUrl;
-      }, 500);
-    } else {
-      // Desktop: open fullscreen modal with embed
-      openFullscreenModal(entry, startAt);
+  preview.onclick = () => openYouTubeApp(entry.youtubeId, startAt);
+}
+
+/* ---------- open YouTube NATIVE APP (not browser) ---------- */
+function openYouTubeApp(videoId, startAt) {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+  
+  // Build URLs
+  // iOS uses vnd.youtube:// scheme, Android uses youtube:// or intent://
+  let appUrl, webUrl;
+  
+  if (isIOS) {
+    // iOS: vnd.youtube:// opens native app reliably
+    appUrl = `vnd.youtube://watch?v=${videoId}&t=${startAt}s`;
+    webUrl = `https://www.youtube.com/watch?v=${videoId}&t=${startAt}s`;
+  } else if (isAndroid) {
+    // Android: intent:// scheme forces app chooser, prioritizing YouTube app
+    appUrl = `intent://www.youtube.com/watch?v=${videoId}&t=${startAt}s#Intent;package=com.google.android.youtube;scheme=https;end;`;
+    webUrl = `https://www.youtube.com/watch?v=${videoId}&t=${startAt}s`;
+  } else {
+    // Desktop/other: just open web
+    window.open(`https://www.youtube.com/watch?v=${videoId}&t=${startAt}s`, '_blank');
+    return;
+  }
+
+  // Try to open app first
+  const now = Date.now();
+  
+  // Create hidden iframe to attempt app launch (works more reliably than window.location on some devices)
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = appUrl;
+  document.body.appendChild(iframe);
+  
+  // Clean up iframe
+  setTimeout(() => {
+    document.body.removeChild(iframe);
+  }, 1000);
+  
+  // Also set window.location as backup method
+  window.location.href = appUrl;
+  
+  // Fallback to web if app didn't open after delay
+  setTimeout(() => {
+    if (Date.now() - now < 1500) {
+      // If we're still here, app didn't open — go to web
+      window.location.href = webUrl;
     }
-  };
+  }, 1200);
 }
-
-/* ---------- desktop fullscreen modal ---------- */
-function openFullscreenModal(entry, startAt) {
-  const modal = document.getElementById('videoModal');
-  const modalFrame = document.getElementById('modalFrame');
-  const modalTitle = document.getElementById('modalTitle');
-  const modalMeta = document.getElementById('modalMetaText');
-
-  const src = `https://www.youtube.com/embed/${entry.youtubeId}` +
-    `?start=${startAt}&autoplay=1&rel=0&playsinline=1&modestbranding=1` +
-    `&origin=${encodeURIComponent(window.location.origin)}` +
-    `&iv_load_policy=3&fs=1&enablejsapi=1`;
-
-  modalFrame.src = src;
-  modalTitle.textContent = entry.name || entry.filename;
-  modalMeta.textContent = `t+${startAt}s`;
-  modal.classList.add('active');
-}
-
-function closeModal() {
-  const modal = document.getElementById('videoModal');
-  const modalFrame = document.getElementById('modalFrame');
-  modal.classList.remove('active');
-  modalFrame.src = '';
-}
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeModal();
-});
 </script>
 </body>
 </html>
