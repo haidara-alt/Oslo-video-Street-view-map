@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oslo Street Archive</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<style>
+  :root{
+    --ink:#0d1117;
+    --panel:#12161c;
+    --panel-line:#232a33;
+    --track:#2f6fed;
+    --track-bright:#5b8dff;
+    --paper:#e9edf3;
+    --dim:#7c8794;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;background:var(--ink);font-family:var(--sans);}
+  #map{position:absolute;inset:0;z-index:1;filter:saturate(0.75) brightness(0.95);}
+  #map.docked{
+    position:fixed;
+    top:auto;left:auto;
+    bottom:18px; right:18px;
+    width:260px; height:260px;
+    border-radius:10px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px var(--panel-line);
+    z-index:40;
+    cursor:pointer;
+    transition:width .25s ease, height .25s ease;
+    overflow:hidden;
+  }
+  #map.docked:hover{ box-shadow:0 12px 40px rgba(0,0,0,0.6), 0 0 0 2px var(--track-bright); }
+
+  #hud{
+    position:absolute; top:16px; left:16px; z-index:20;
+    background:rgba(18,22,28,0.92); border:1px solid var(--panel-line);
+    border-radius:10px; padding:14px 16px; width:280px;
+    color:var(--paper); backdrop-filter:blur(6px);
+  }
+  #hud h1{
+    font-size:13px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--track-bright); margin:0 0 4px; font-weight:600;
+  }
+  #hud p.sub{ margin:0 0 12px; font-size:12px; color:var(--dim); line-height:1.5;}
+  .legend-row{display:flex; align-items:center; gap:8px; font-size:12px; color:var(--dim); margin-bottom:2px;}
+  .swatch{width:18px;height:4px;border-radius:2px;background:var(--track);}
+  #videoList{list-style:none; margin:12px 0 0; padding:10px 0 0; border-top:1px solid var(--panel-line);}
+  #videoList li{
+    font-family:var(--mono); font-size:11.5px; color:var(--paper);
+    padding:6px 4px; border-radius:6px; cursor:pointer; display:flex; justify-content:space-between; gap:8px;
+  }
+  #videoList li:hover{background:rgba(91,141,255,0.12); color:var(--track-bright);}
+  #videoList li span.tag{color:var(--dim);}
+
+  #coordReadout{
+    position:absolute; bottom:16px; left:16px; z-index:20;
+    font-family:var(--mono); font-size:11px; color:var(--dim);
+    background:rgba(18,22,28,0.85); border:1px solid var(--panel-line);
+    padding:6px 10px; border-radius:6px; pointer-events:none;
+  }
+
+  #videoPanel{
+    position:fixed; inset:0; z-index:30;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(3,5,8,0.94);
+    opacity:0; pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  #videoPanel.active{ opacity:1; pointer-events:auto; }
+  #playerFrame{
+    width:min(92vw, 1400px); aspect-ratio:16/9;
+    background:#000; border-radius:8px; overflow:hidden;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+  }
+  #playerFrame iframe{ width:100%; height:100%; border:0; display:block; }
+  #closeVideo{
+    position:absolute; top:22px; right:26px; z-index:31;
+    width:38px; height:38px; border-radius:50%;
+    background:rgba(255,255,255,0.06); border:1px solid var(--panel-line);
+    color:var(--paper); font-size:18px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #closeVideo:hover{ background:rgba(91,141,255,0.18); border-color:var(--track-bright); }
+  #videoMeta{
+    position:absolute; bottom:26px; left:26px; z-index:31;
+    font-family:var(--mono); font-size:12px; color:var(--dim);
+  }
+  #videoMeta b{ color:var(--paper); font-weight:600; }
+  #dockHint{
+    position:absolute; bottom:-26px; left:0; width:100%; text-align:center;
+    font-family:var(--mono); font-size:9.5px; color:var(--dim);
+    background:rgba(18,22,28,0.92); padding:4px 0;
+  }
+  .leaflet-container{ background:#0d1117; }
+</style>
+</head>
+<body>
+
+<div id="map"><div id="dockHint">tap to reopen map</div></div>
+
+<div id="hud">
+  <h1>Oslo Street Archive</h1>
+  <p class="sub">Personal 360&deg; footage, geotagged and stitched to a map. Click any blue street to drop into the video at that exact spot.</p>
+  <div class="legend-row"><span class="swatch"></span> Filmed street</div>
+  <ul id="videoList"></ul>
+</div>
+
+<div id="coordReadout">hover the map for coordinates</div>
+
+<div id="videoPanel">
+  <button id="closeVideo" aria-label="Close video">&times;</button>
+  <div id="videoMeta"></div>
+  <div id="playerFrame"><div id="ytPlayer"></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ---------- config ---------- */
+const OSLO_CENTER = [59.9139, 10.7522];
+const MANIFEST_URL = 'manifest.json';
+
+/* ---------- map setup ---------- */
+const map = L.map('map', { zoomControl: true, attributionControl: true })
+  .setView(OSLO_CENTER, 13);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  maxZoom: 20
+}).addTo(map);
+
+map.on('mousemove', e => {
+  document.getElementById('coordReadout').textContent =
+    `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
+});
+
+/* ---------- state ---------- */
+let tracks = [];       // {entry, points:[{lat,lon,seconds}], polyline}
+let ytPlayer = null;
+let ytApiReady = false;
+let pendingOpen = null;
+
+/* ---------- YouTube IFrame API ---------- */
+window.onYouTubeIframeAPIReady = function () {
+  ytApiReady = true;
+  if (pendingOpen) { const p = pendingOpen; pendingOpen = null; openVideo(p.entry, p.seconds); }
+};
+(function loadYT() {
+  const s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
+
+/* ---------- GPX parsing ---------- */
+function parseGpx(xmlText) {
+  const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+  const pts = Array.from(xml.getElementsByTagName('trkpt')).map(pt => ({
+    lat: parseFloat(pt.getAttribute('lat')),
+    lon: parseFloat(pt.getAttribute('lon')),
+    time: new Date(pt.getElementsByTagName('time')[0].textContent)
+  }));
+  if (!pts.length) return [];
+  const t0 = pts[0].time.getTime();
+  return pts.map(p => ({
+    lat: p.lat, lon: p.lon,
+    seconds: Math.max(0, Math.round((p.time.getTime() - t0) / 1000))
+  }));
+}
+
+function nearestPoint(points, latlng) {
+  let best = points[0], bestDist = Infinity;
+  const target = L.latLng(latlng.lat, latlng.lng);
+  for (const p of points) {
+    const d = target.distanceTo([p.lat, p.lon]);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  return best;
+}
+
+/* ---------- loading ---------- */
+async function loadAll() {
+  let manifest;
+  try {
+    manifest = await (await fetch(MANIFEST_URL)).json();
+  } catch (e) {
+    console.error('Could not load manifest.json — serve this folder over http(s), not file://', e);
+    return;
+  }
+
+  const listEl = document.getElementById('videoList');
+  const allBounds = [];
+
+  for (const entry of manifest) {
+    let gpxText;
+    try {
+      gpxText = await (await fetch(entry.gpx)).text();
+    } catch (e) {
+      console.error('Missing gpx for', entry.filename, e);
+      continue;
+    }
+    const points = parseGpx(gpxText);
+    if (!points.length) continue;
+
+    const latlngs = points.map(p => [p.lat, p.lon]);
+    allBounds.push(...latlngs);
+
+    // wide invisible hit-line for easy clicking, plus visible line on top
+    const hit = L.polyline(latlngs, { color: '#000', weight: 18, opacity: 0 }).addTo(map);
+    const line = L.polyline(latlngs, { color: getComputedStyle(document.documentElement).getPropertyValue('--track').trim(), weight: 4, opacity: 0.9 }).addTo(map);
+
+    [hit, line].forEach(l => {
+      l.on('mouseover', () => { line.setStyle({ color: '#5b8dff', weight: 6 }); map.getContainer().style.cursor = 'pointer'; });
+      l.on('mouseout', () => { line.setStyle({ color: '#2f6fed', weight: 4 }); map.getContainer().style.cursor = ''; });
+      l.on('click', ev => {
+        const p = nearestPoint(points, ev.latlng);
+        openVideo(entry, p.seconds);
+      });
+    });
+
+    tracks.push({ entry, points, polyline: line });
+
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${entry.name || entry.filename}</span><span class="tag">${points.length} pts</span>`;
+    li.addEventListener('click', () => map.fitBounds(latlngs, { maxZoom: 17 }));
+    listEl.appendChild(li);
+  }
+
+  if (allBounds.length) map.fitBounds(allBounds, { padding: [40, 40] });
+}
+loadAll();
+
+/* ---------- video panel ---------- */
+function openVideo(entry, seconds) {
+  const startAt = Math.max(0, seconds + (entry.offsetAdjustSeconds || 0));
+
+  document.getElementById('videoPanel').classList.add('active');
+  document.getElementById('map').classList.add('docked');
+  document.getElementById('videoMeta').innerHTML =
+    `<b>${entry.name || entry.filename}</b> &nbsp;·&nbsp; t+${startAt}s`;
+
+  if (!ytApiReady) { pendingOpen = { entry, seconds }; return; }
+
+  if (!ytPlayer) {
+    ytPlayer = new YT.Player('ytPlayer', {
+      videoId: entry.youtubeId,
+      playerVars: { start: startAt, autoplay: 1, rel: 0 },
+      events: {
+        onReady: ev => { ev.target.seekTo(startAt, true); ev.target.playVideo(); }
+      }
+    });
+    ytPlayer._loadedId = entry.youtubeId;
+  } else if (ytPlayer._loadedId === entry.youtubeId) {
+    ytPlayer.seekTo(startAt, true);
+    ytPlayer.playVideo();
+  } else {
+    ytPlayer.loadVideoById({ videoId: entry.youtubeId, startSeconds: startAt });
+    ytPlayer._loadedId = entry.youtubeId;
+  }
+}
+
+function closeVideo() {
+  document.getElementById('videoPanel').classList.remove('active');
+  document.getElementById('map').classList.remove('docked');
+  if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+}
+document.getElementById('closeVideo').addEventListener('click', closeVideo);
+document.getElementById('map').addEventListener('click', () => {
+  if (document.getElementById('map').classList.contains('docked')) closeVideo();
+});
+</script>
+</body>
+</html>
